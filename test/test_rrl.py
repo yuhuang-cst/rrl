@@ -14,7 +14,7 @@ from rrl.utils import get_cls_metric_dict
 DATASET_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'dataset')
 
 def run(data_path, info_path, rrl_kwargs):
-    reader = DataReader(data_path, info_path, sparse=True)
+    reader = DataReader(data_path, info_path, sparse=False)
     reader.read()
     X, y = reader.X, reader.y
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
@@ -39,7 +39,7 @@ if __name__ == '__main__':
         'epoch': 401,
         'lr_decay_epoch': 200,
         'weight_decay': 1e-6,
-        'verbose': False,
+        'verbose': True,
     }
     run(data_path, info_path, rrl_kwargs)
 

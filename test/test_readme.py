@@ -31,12 +31,12 @@ feature_names = np.hstack([feature_names_disc, feature_names_conti])
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
 
 # RRL
-cls = RRLClassifier(dim_list=[1, 16], lr=0.01, batch_size=32, epoch=5, eval_metric='macro avg f1-score', verbose=True)
+cls = RRLClassifier(dim_list=[1, 8, 8], lr=0.01, batch_size=64, epoch=5, eval_metric='macro avg f1-score', verbose=True, save_folder='./rrl_kdd')
 cls.fit(X_train, y_train, discrete_features=list(range(len(feature_names_disc))))
 y_test_pred = cls.predict(X_test)
-print('========= Learned Rules =========')
+print('========= 5 Learned Rules =========')
 rule_dicts = cls.extract_rules(feature_names, weight_sort=cls.classes_[1], cal_act_rate=True, need_bias=True)
-for rule_dict in rule_dicts:
+for rule_dict in rule_dicts[:5]:
     print(rule_dict)
 print('RRL:\n', classification_report(y_test, y_test_pred))
 

@@ -6,9 +6,35 @@
 import os
 import chardet
 import numpy as np
+import logging
 
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, roc_curve, auc
 
+
+def get_logger(name, log_path=None, level=logging.DEBUG, mode='a'):
+    """
+    Args:
+        name (str or None): None means return root logger
+        log_path (str or None): log文件路径
+    """
+    formatter = logging.Formatter(fmt="%(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+    logger = logging.getLogger(name)
+    if len(logger.handlers) != 0:
+        return logger
+    logger.setLevel(level)
+    if log_path is not None:
+        fh = logging.FileHandler(log_path, mode=mode)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    return logger
+
+
+def delete_logger(logger):
+    while logger.handlers:
+        logger.handlers.pop()
 
 def run_sys_cmd(cmd):
     r = os.popen(cmd)

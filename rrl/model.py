@@ -4,6 +4,7 @@
 
 import os
 import numpy as np
+import shutil
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -12,13 +13,12 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.preprocessing import LabelEncoder
 from collections import defaultdict
 import scipy.sparse as sp
-from loguru import logger
 from tqdm import tqdm
 
 from rrl.components import BinarizeLayer
 from rrl.components import UnionLayer, LRLayer
 from rrl.feature_order_manager import FeatureOrderManager
-from rrl.utils import get_one_idle_gpu, get_cls_metric_dict, flatten_dict
+from rrl.utils import get_one_idle_gpu, get_cls_metric_dict, flatten_dict, get_logger
 from rrl.constant import AND_OP, OR_OP, NOT_OP
 
 
@@ -88,7 +88,7 @@ class RRLClassifier(object):
     def __init__(self, dim_list=None, use_not=False, estimated_grad=False, continuous_left=-3., continuous_right=3.,
                  distributed=False, save_folder=None, save_mode='best', dtype=torch.float32, auto_val_size=0.05, device=None,
                  epoch=50, lr=0.001, lr_decay_epoch=None, lr_decay_rate=0.75, batch_size=32, weight_decay=0.0, log_step=50, eval_step=50,
-                 pin_memory=False, write_summary=True, eval_metric='macro avg f1-score', verbose=True):
+                 pin_memory=False, write_summary=False, eval_metric='macro avg f1-score', verbose=True):
         """
         Args:
             dim_list (list): [n_hidden1, n_hidden2]; Note: the input layer (n_disc_features, n_conti_features) is not included. Default: [1, 16]
@@ -97,7 +97,7 @@ class RRLClassifier(object):
             continuous_left (float or array-like): min value for continuous features; deault: -3.0
             continuous_right (float or array-like): max value for continuous features; deault: 3.0
             distributed (bool): TODO: Use multiple gpu to train model.
-            save_folder (str): save path of model. e.g. 'model.pth'
+            save_folder (str or None): save folder of model. Default: None
             save_mode (str or None): 'best' | 'end' | None
                 'best': save the best model during training accrording to performance in valid dataset
                 'end': save in the end of training
@@ -140,13 +140,20 @@ class RRLClassifier(object):
         self.eval_metric = eval_metric
         self.verbose = verbose
 
+        self.del_save_folder = save_folder is None
         self.init_save_path(save_folder)
+        self.init_logger()
         self.feat_order_manager = None
+
+
+    def init_logger(self):
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self.logger = get_logger('rrl', self.log_path, mode='w')
 
 
     def logger_info(self, *args, **kwargs):
         if self.verbose:
-            logger.info(*args, **kwargs)
+            self.logger.info(*args, **kwargs)
 
 
     def init_save_path(self, save_folder):
@@ -159,7 +166,7 @@ class RRLClassifier(object):
     def get_default_device(self):
         if torch.cuda.is_available():
             gpu_id, gpu_mem = get_one_idle_gpu()
-            print(f'Use GPU:{gpu_id}; GPU memory available = {gpu_mem} MB')
+            self.logger_info(f'Use GPU:{gpu_id}; GPU memory available = {gpu_mem} MB')
             return torch.device(f'cuda:{gpu_id}')
         return torch.device('cpu')
 
@@ -168,25 +175,9 @@ class RRLClassifier(object):
         self.device = device
 
 
-    def __del__(self):
-        self.remove_logger()
-
-
     def check_dim_list(self, dim_list):
         assert len(dim_list) >= 2, 'length of dim_list should be at least 2'
         return dim_list
-
-
-    def init_logger(self):
-        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
-        if hasattr(self, 'log_hander_id') and self.log_hander_id is not None:
-            self.log_hander_id = logger.add(self.log_path)
-
-
-    def remove_logger(self):
-        if hasattr(self, 'log_hander_id') and self.log_hander_id is not None:
-            logger.remove(self.log_hander_id)
-            self.log_hander_id = None
 
 
     def convert_mat_to_dataloader(self, X, batch_size, shuffle, y=None):
@@ -223,7 +214,6 @@ class RRLClassifier(object):
         Returns:
             RRL
         """
-        self.init_logger()
         X = self.check_X(X)
         if discrete_features:
             self.feat_order_manager = FeatureOrderManager()
@@ -247,7 +237,6 @@ class RRLClassifier(object):
             val_loader = self.convert_mat_to_dataloader(X_val, y=y_val, batch_size=self.batch_size, shuffle=False)
 
         self.fit_dataloader(input_dims, train_loader, val_loader=val_loader)
-        self.remove_logger()
         if self.feat_order_manager is not None:
             self.feat_order_manager.inverse_transform(X, inplace=True)
 
@@ -285,7 +274,6 @@ class RRLClassifier(object):
             val_loader (torch.utils.data.DataLoader):
             label_encoder (LabelEncoder)
         """
-        self.init_logger()
         if val_loader is None and self.auto_val_size > 0.:
             val_size = int(len(train_loader.dataset) * self.auto_val_size)
             train_size = len(train_loader.dataset) - val_size
@@ -400,7 +388,9 @@ class RRLClassifier(object):
             self.save()
 
         self.net.load_state_dict(torch.load(self.model_path)['state_dict'])
-        self.remove_logger()
+
+        if self.del_save_folder:
+            shutil.rmtree(self.save_folder, ignore_errors=True)
         return epoch_histc
 
 
@@ -578,7 +568,7 @@ class RRLClassifier(object):
         if len(self.net.layer_list) >= 4:
             self.net.layer_list[2].get_rules(self.net.layer_list[1], None)
             self.net.layer_list[2].get_rule_description((None, self.net.layer_list[1].rule_name), wrap=True, and_op=and_op, or_op=or_op)
-            self.net.layer_list[2].get_rule_parse_objs((None, self.net.layer_list[1].rule_parse_objs), wrap=True, and_op=and_op, or_op=or_op)
+            self.net.layer_list[2].get_rule_parse_objs((None, self.net.layer_list[1].rule_parse_objs), and_op=and_op, or_op=or_op)
 
         if len(self.net.layer_list) >= 5:
             for i in range(3, len(self.net.layer_list) - 1):
@@ -586,7 +576,7 @@ class RRLClassifier(object):
                 self.net.layer_list[i].get_rule_description(
                     (self.net.layer_list[i-2].rule_name, self.net.layer_list[i-1].rule_name), wrap=True, and_op=and_op, or_op=or_op)
                 self.net.layer_list[i].get_rule_parse_objs(
-                    (self.net.layer_list[i-2].rule_parse_objs, self.net.layer_list[i-1].rule_parse_objs), wrap=True, and_op=and_op, or_op=or_op)
+                    (self.net.layer_list[i-2].rule_parse_objs, self.net.layer_list[i-1].rule_parse_objs), and_op=and_op, or_op=or_op)
 
         prev_layer = self.net.layer_list[-2]
         skip_connect_layer = self.net.layer_list[-3]

@@ -13,7 +13,7 @@ setup(
     name='rrl',
     description='An implementation of RRL (Rule-based Representation Learner). See paper `Scalable Rule-Based Representation Learning for Interpretable Classiﬁcation` for details',
     long_description=open('README.md').read(),
-    version='1.0.1',
+    version='1.0.2',
     author='Yu Huang',
     author_email='yuhuang-cst@foxmail.com',
     packages=find_packages(),
