@@ -1,9 +1,11 @@
 # RRL
-This is an implementation of **RRL** (Rule-based Representation Learner) with sklearn-like interfaces.
+This is an implementation of **RRL** (Rule-based Representation Learner) with sklearn-like interfaces. 
+
+Original codes: [https://github.com/12wang3/rrl](https://github.com/12wang3/rrl)
 
 Reference: 
 
-[1] Zhuo Wang et al. (NeurIPS 2021). Scalable Rule-Based Representation Learning for Interpretable Classiﬁcation.
+[1] [Zhuo Wang et al. (NeurIPS 2021). Scalable Rule-Based Representation Learning for Interpretable Classiﬁcation.](https://arxiv.org/abs/2109.15103)
 
 ## Installation
 ```
