@@ -2,6 +2,7 @@
 This is an implementation of **RRL** (Rule-based Representation Learner) with sklearn-like interfaces.
 
 Reference: 
+
 [1] Zhuo Wang et al. (NeurIPS 2021). Scalable Rule-Based Representation Learning for Interpretable Classiﬁcation.
 
 ## Installation
