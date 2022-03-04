@@ -339,11 +339,12 @@ class RRLClassifier(object):
                     abs_gradient_avg += torch.sum(torch.abs(param.grad)) / (param.grad.numel())
                 self.clip()
 
-                if cnt % self.log_step == 0 and cnt != 0 and sum_writer is not None:
+                if cnt % self.log_step == 0 and cnt != 0:
                     avg_batch_loss_mllp /= self.log_step
                     avg_batch_loss_rrl /= self.log_step
-                    sum_writer.add_scalar('Avg_Batch_Loss_MLLP', avg_batch_loss_mllp, cnt)
-                    sum_writer.add_scalar('Avg_Batch_Loss_GradGrafting', avg_batch_loss_rrl, cnt)
+                    if sum_writer is not None:
+                        sum_writer.add_scalar('Avg_Batch_Loss_MLLP', avg_batch_loss_mllp, cnt)
+                        sum_writer.add_scalar('Avg_Batch_Loss_GradGrafting', avg_batch_loss_rrl, cnt)
                     self.logger_info(f'epoch {epo} / {self.epoch}; batch {ba_cnt} / {len(train_loader)}; loss_mllp = {avg_batch_loss_mllp}; loss_rrl = {avg_batch_loss_rrl}')
                     avg_batch_loss_mllp = 0.0
                     avg_batch_loss_rrl = 0.0
