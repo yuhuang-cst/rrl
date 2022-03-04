@@ -1,7 +1,7 @@
 # RRL
 This is an implementation of **RRL** (Rule-based Representation Learner) with sklearn-like interfaces. 
 
-Original codes: [https://github.com/12wang3/rrl](https://github.com/12wang3/rrl)
+Original code: [https://github.com/12wang3/rrl](https://github.com/12wang3/rrl)
 
 Reference: 
 
