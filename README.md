@@ -1,5 +1,5 @@
 # RRL
-This is an implementation of **RRL** (Rule-based Representation Learner) with sklearn-like interfaces. 
+This is an sklearn-like implementation of **RRL** (Rule-based Representation Learner). 
 
 Original code: [https://github.com/12wang3/rrl](https://github.com/12wang3/rrl)
 
