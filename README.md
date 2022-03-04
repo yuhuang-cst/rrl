@@ -12,6 +12,16 @@ Reference:
 pip3 install git+https://github.com/yuhuang-cst/rrl.git
 ```
 
+## Requirements
+```
+torch >= 1.9.0
+chardet >= 3.0.4
+numpy >= 1.21.4
+scipy >= 1.6.2
+scikit-learn >= 0.24.2
+tqdm >= 4.59.0
+```
+
 ## Usage
 
 ```python
