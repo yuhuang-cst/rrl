@@ -26,7 +26,7 @@ class Binarize(torch.autograd.Function):
 class BinarizeLayer(nn.Module):
     """Implement the feature discretization and binarization."""
 
-    def __init__(self, n, input_dim, use_not=False, left=None, right=None):
+    def __init__(self, n, input_dim, use_not=False, left=None, right=None, dtype=None):
         super(BinarizeLayer, self).__init__()
         self.n = n
         self.input_dim = input_dim
@@ -47,11 +47,11 @@ class BinarizeLayer(nn.Module):
 
         if self.input_dim[1] > 0:
             if self.left is not None and self.right is not None:
-                cl = self.left + torch.rand(self.n, self.input_dim[1]) * (self.right - self.left)
-                cr = self.left + torch.rand(self.n, self.input_dim[1]) * (self.right - self.left)
+                cl = self.left + torch.rand(self.n, self.input_dim[1], dtype=dtype) * (self.right - self.left)
+                cr = self.left + torch.rand(self.n, self.input_dim[1], dtype=dtype) * (self.right - self.left)
             else:
-                cl = 3. * (2. * torch.rand(self.n, self.input_dim[1]) - 1.)
-                cr = 3. * (2. * torch.rand(self.n, self.input_dim[1]) - 1.)
+                cl = 3. * (2. * torch.rand(self.n, self.input_dim[1], dtype=dtype) - 1.)
+                cr = 3. * (2. * torch.rand(self.n, self.input_dim[1], dtype=dtype) - 1.)
             self.register_buffer('cl', cl)
             self.register_buffer('cr', cr)
 
@@ -136,14 +136,14 @@ class EstimatedProduct(torch.autograd.Function):
 class LRLayer(nn.Module):
     """The LR layer is used to learn the linear part of the data."""
 
-    def __init__(self, n, input_dim):
+    def __init__(self, n, input_dim, dtype=None):
         super(LRLayer, self).__init__()
         self.n = n
         self.input_dim = input_dim
         self.output_dim = self.n
         self.layer_type = 'linear'
 
-        self.fc1 = nn.Linear(self.input_dim, self.output_dim)
+        self.fc1 = nn.Linear(self.input_dim, self.output_dim, dtype=dtype)
 
     def forward(self, x):
         return self.fc1(x)
@@ -159,7 +159,7 @@ class LRLayer(nn.Module):
 class ConjunctionLayer(nn.Module):
     """The conjunction layer is used to learn the conjunction of nodes."""
 
-    def __init__(self, n, input_dim, use_not=False, estimated_grad=False):
+    def __init__(self, n, input_dim, use_not=False, estimated_grad=False, dtype=None):
         super(ConjunctionLayer, self).__init__()
         self.n = n
         self.use_not = use_not
@@ -167,7 +167,7 @@ class ConjunctionLayer(nn.Module):
         self.output_dim = self.n
         self.layer_type = 'conjunction'
 
-        self.W = nn.Parameter(INIT_RANGE * torch.rand(self.n, self.input_dim))
+        self.W = nn.Parameter(INIT_RANGE * torch.rand(self.n, self.input_dim, dtype=dtype))
         self.Product = EstimatedProduct if estimated_grad else Product
         self.node_activation_cnt = None
 
@@ -189,7 +189,7 @@ class ConjunctionLayer(nn.Module):
 class DisjunctionLayer(nn.Module):
     """The disjunction layer is used to learn the disjunction of nodes."""
 
-    def __init__(self, n, input_dim, use_not=False, estimated_grad=False):
+    def __init__(self, n, input_dim, use_not=False, estimated_grad=False, dtype=None):
         super(DisjunctionLayer, self).__init__()
         self.n = n
         self.use_not = use_not
@@ -197,7 +197,7 @@ class DisjunctionLayer(nn.Module):
         self.output_dim = self.n
         self.layer_type = 'disjunction'
 
-        self.W = nn.Parameter(INIT_RANGE * torch.rand(self.n, self.input_dim))
+        self.W = nn.Parameter(INIT_RANGE * torch.rand(self.n, self.input_dim, dtype=dtype))
         self.Product = EstimatedProduct if estimated_grad else Product
         self.node_activation_cnt = None
 
@@ -273,7 +273,7 @@ def extract_rules(prev_layer, skip_connect_layer, layer, pos_shift=0):
 class UnionLayer(nn.Module):
     """The union layer is used to learn the rule-based representation."""
 
-    def __init__(self, n, input_dim, use_not=False, estimated_grad=False):
+    def __init__(self, n, input_dim, use_not=False, estimated_grad=False, dtype=None):
         super(UnionLayer, self).__init__()
         self.n = n
         self.use_not = use_not
@@ -287,8 +287,8 @@ class UnionLayer(nn.Module):
         self.rule_name = None # [str, str, ...]; length=output_dim
         self.rule_parse_objs = None # [tuple, tuple, ...]; lengh=output_dim
 
-        self.con_layer = ConjunctionLayer(self.n, self.input_dim, use_not=use_not, estimated_grad=estimated_grad)
-        self.dis_layer = DisjunctionLayer(self.n, self.input_dim, use_not=use_not, estimated_grad=estimated_grad)
+        self.con_layer = ConjunctionLayer(self.n, self.input_dim, use_not=use_not, estimated_grad=estimated_grad, dtype=dtype)
+        self.dis_layer = DisjunctionLayer(self.n, self.input_dim, use_not=use_not, estimated_grad=estimated_grad, dtype=dtype)
 
     def forward(self, x):
         return torch.cat([self.con_layer(x), self.dis_layer(x)], dim=1)

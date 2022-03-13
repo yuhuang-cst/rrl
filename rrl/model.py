@@ -23,7 +23,7 @@ from rrl.constant import AND_OP, OR_OP, NOT_OP
 
 
 class MLLP(nn.Module):
-    def __init__(self, dim_list, use_not=False, left=None, right=None, estimated_grad=False):
+    def __init__(self, dim_list, use_not=False, left=None, right=None, estimated_grad=False, dtype=None):
         super(MLLP, self).__init__()
 
         self.dim_list = dim_list
@@ -39,13 +39,13 @@ class MLLP(nn.Module):
                 num += self.layer_list[-2].output_dim
 
             if i == 1:
-                layer = BinarizeLayer(dim_list[i], num, self.use_not, self.left, self.right)
+                layer = BinarizeLayer(dim_list[i], num, self.use_not, self.left, self.right, dtype=dtype)
                 layer_name = 'binary{}'.format(i)
             elif i == len(dim_list) - 1:
-                layer = LRLayer(dim_list[i], num)
+                layer = LRLayer(dim_list[i], num, dtype=dtype)
                 layer_name = 'lr{}'.format(i)
             else:
-                layer = UnionLayer(dim_list[i], num, estimated_grad=estimated_grad)
+                layer = UnionLayer(dim_list[i], num, estimated_grad=estimated_grad, dtype=dtype)
                 layer_name = 'union{}'.format(i)
             prev_layer_dim = layer.output_dim
             self.add_module(layer_name, layer)
@@ -88,7 +88,7 @@ class RRLClassifier(object):
     def __init__(self, dim_list=None, use_not=False, estimated_grad=False, continuous_left=-3., continuous_right=3.,
                  distributed=False, save_folder=None, save_mode='best', dtype=torch.float32, auto_val_size=0.05, device=None,
                  epoch=50, lr=0.001, lr_decay_epoch=None, lr_decay_rate=0.75, batch_size=32, weight_decay=0.0, log_step=50, eval_step=50,
-                 pin_memory=False, write_summary=False, eval_metric='macro avg f1-score', verbose=True):
+                 pin_memory=False, write_summary=False, eval_metric='macro avg f1-score', metric_ascending=True, verbose=True):
         """
         Args:
             dim_list (list): [n_hidden1, n_hidden2]; Note: the input layer (n_disc_features, n_conti_features) is not included. Default: [1, 16]
@@ -117,6 +117,7 @@ class RRLClassifier(object):
             eval_metric (str): metric to select the best model during traning. e.g. 'macro avg f1-score', 'accuracy', 'weighted avg precision', '{class_name} f1-score'
         """
         super(RRLClassifier, self).__init__()
+        self.verbose = verbose
         self.dim_list = self.check_dim_list(dim_list or [1, 16])
         self.use_not = use_not
         self.estimated_grad = estimated_grad
@@ -134,15 +135,15 @@ class RRLClassifier(object):
         self.eval_step = eval_step
         self.dtype = dtype
         self.auto_val_size = auto_val_size
-        self.device = self.get_default_device() if device is None else device
         self.pin_memory = pin_memory
         self.write_summary = write_summary
         self.eval_metric = eval_metric
-        self.verbose = verbose
+        self.metric_ascending = metric_ascending
 
         self.del_save_folder = save_folder is None
         self.init_save_path(save_folder)
         self.init_logger()
+        self.device = self.get_default_device() if device is None else device
         self.feat_order_manager = None
 
 
@@ -234,6 +235,10 @@ class RRLClassifier(object):
         train_loader = self.convert_mat_to_dataloader(X, y=y, batch_size=self.batch_size, shuffle=True)
         val_loader = None
         if X_val is not None and y_val is not None:
+            X_val = self.check_X(X_val)
+            if self.feat_order_manager is not None:
+                self.feat_order_manager.transform(X_val, inplace=True)
+            y_val = label_encoder.transform(y_val)
             val_loader = self.convert_mat_to_dataloader(X_val, y=y_val, batch_size=self.batch_size, shuffle=False)
 
         self.fit_dataloader(input_dims, train_loader, val_loader=val_loader)
@@ -244,7 +249,7 @@ class RRLClassifier(object):
     def init_network(self):
         net = MLLP(
             self.dim_list, use_not=self.use_not, left=self.continuous_left,
-            right=self.continuous_right, estimated_grad=self.estimated_grad
+            right=self.continuous_right, estimated_grad=self.estimated_grad, dtype=self.dtype
         )
         # if self.distributed:
         #     net = MyDistributedDataParallel(self.net, device_ids=[self.device_id])
@@ -297,8 +302,9 @@ class RRLClassifier(object):
         avg_batch_loss_mllp = 0.0
         avg_batch_loss_rrl = 0.0
         epoch_histc = defaultdict(list)
-        best_metric = float('-inf')
+        best_metric = float('-inf') if self.metric_ascending else float('inf')
         for epo in range(1, self.epoch + 1):
+            self.logger_info(F'Epoch {epo} starts...')
             if self.lr_decay_epoch is not None:
                 optimizer = self.exp_lr_scheduler(
                     optimizer, epo, init_lr=self.lr,
@@ -320,7 +326,7 @@ class RRLClassifier(object):
                 y = nn.functional.one_hot(y, num_classes=self.n_classes).to(self.device, non_blocking=self.pin_memory)
 
                 optimizer.zero_grad()  # Zero the gradient buffers.
-                y_pred_mllp, y_pred_rrl = self.net.forward(X)
+                y_pred_mllp, y_pred_rrl = self.net.forward(X) # logits
                 with torch.no_grad():
                     y_prob = torch.softmax(y_pred_rrl, dim=1)
                     y_arg = torch.argmax(y, dim=1)
@@ -332,7 +338,7 @@ class RRLClassifier(object):
                     epoch_loss_rrl += ba_loss_rrl
                     avg_batch_loss_mllp += ba_loss_mllp
                     avg_batch_loss_rrl += ba_loss_rrl
-                y_pred_mllp.backward((y_prob - y) / y.shape[0])  # for CrossEntropy Loss
+                y_pred_mllp.backward((y_prob - y) / y.shape[0])  # gradient of softmax + cross-entropy: y_prob - y
                 optimizer.step()
                 for i, param in enumerate(self.net.parameters()):
                     abs_gradient_max = max(abs_gradient_max, abs(torch.max(param.grad)))
@@ -352,13 +358,13 @@ class RRLClassifier(object):
                 if cnt % self.eval_step == 0:
                     self.net.eval()
                     if val_loader is not None:
-                        metric_dict, metric_dict_b = self.cal_metric_with_dataloader(val_loader)
+                        metric_dict, metric_dict_b = self.cal_metric_with_dataloader(val_loader, criterion)
                     else:
-                        metric_dict, metric_dict_b = self.cal_metric_with_dataloader(train_loader)
+                        metric_dict, metric_dict_b = self.cal_metric_with_dataloader(train_loader, criterion)
                     cur_metric = flatten_dict(metric_dict_b, sep=' ')[self.eval_metric]
                     metric_histc.append(cur_metric)
-                    self.logger_info(f'epoch {epo} / {self.epoch}; batch {ba_cnt} / {len(train_loader)}; {self.eval_metric} = {cur_metric}')
-                    if self.save_mode == 'best' and cur_metric > best_metric:
+                    self.logger_info(f'epoch {epo} / {self.epoch}; batch {ba_cnt} / {len(train_loader)}; metric {self.eval_metric} = {cur_metric}')
+                    if self.save_mode == 'best' and (cur_metric > best_metric if self.metric_ascending else cur_metric < best_metric):
                         self.logger_info(f'update best {self.eval_metric}: {best_metric} -> {cur_metric}')
                         best_metric = cur_metric
                         self.detect_dead_node(train_loader) # TODO: accelerrate
@@ -395,7 +401,7 @@ class RRLClassifier(object):
         return epoch_histc
 
 
-    def cal_metric_with_dataloader(self, dataloader):
+    def cal_metric_with_dataloader(self, dataloader, criterion):
         """
         Args:
             dataloader (DataLoader)
@@ -403,7 +409,9 @@ class RRLClassifier(object):
             dict: metric dict (continueous net). The format is the same as return of function get_cls_metric_dict.
             dict: metric dict (binary net). The format is the same as return of function get_cls_metric_dict.
         """
+        self.logger_info('Calculating metrics...')
         y_true, y_pred, y_pred_b = [], [], []
+        loss_mllp, loss_rrl = 0.0, 0.0
         with torch.no_grad():
             if self.verbose:
                 dataloader = tqdm(dataloader)
@@ -416,11 +424,18 @@ class RRLClassifier(object):
                 y_pred.append(torch.argmax(logits, dim=1).cpu().numpy())
                 y_pred_b.append(torch.argmax(logits_b, dim=1).cpu().numpy())
 
+                y = y.to(self.device)
+                loss_mllp += criterion(logits, y).item()
+                loss_rrl += criterion(logits_b, y).item()
+
         y_true = self.classes_[np.hstack(y_true)]
         y_pred = self.classes_[np.hstack(y_pred)]
         y_pred_b = self.classes_[np.hstack(y_pred_b)]
         metric_dict = get_cls_metric_dict(y_true, y_pred, label_list=self.classes_, cal_confusion=True)
+        metric_dict['loss'] = loss_mllp / len(dataloader)
         metric_dict_b = get_cls_metric_dict(y_true, y_pred_b, label_list=self.classes_, cal_confusion=True)
+        metric_dict_b['loss'] = loss_rrl / len(dataloader)
+        self.logger_info('Calculating metrics: done')
         return metric_dict, metric_dict_b
 
 
@@ -512,7 +527,7 @@ class RRLClassifier(object):
     def detect_dead_node(self, data_loader=None):
         with torch.no_grad():
             for layer in self.net.layer_list[:-1]:
-                layer.node_activation_cnt = torch.zeros(layer.output_dim, dtype=torch.double, device=self.device)
+                layer.node_activation_cnt = torch.zeros(layer.output_dim, dtype=self.dtype, device=self.device)
                 layer.forward_tot = 0
             for x, y in data_loader:
                 if x.is_sparse:

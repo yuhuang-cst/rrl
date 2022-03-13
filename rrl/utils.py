@@ -7,8 +7,13 @@ import os
 import chardet
 import numpy as np
 import logging
+import random
+import string
 
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix, roc_curve, auc
+
+def randstr(num):
+    return ''.join(random.sample(string.ascii_letters + string.digits, num))
 
 
 def get_logger(name, log_path=None, level=logging.DEBUG, mode='a'):
